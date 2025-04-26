@@ -49,6 +49,13 @@ class MyAppState extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  bool isNavigationRailVisible = true;
+
+  void toggleNavigationRail() {
+    isNavigationRailVisible = !isNavigationRailVisible;
+    notifyListeners();
+  }
 }
 
 class MyHomePage extends StatefulWidget {
@@ -58,8 +65,10 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   var selectedIndex = 2; // ← Add this property.
+
   @override
   Widget build(BuildContext context) {
+    var appState = context.watch<MyAppState>();
     Widget page;
     switch (selectedIndex) {
       case 0:
@@ -75,30 +84,31 @@ class _MyHomePageState extends State<MyHomePage> {
       return Scaffold(
         body: Row(
           children: [
-            SafeArea(
-              child: NavigationRail(
-                extended: constraints.maxWidth >= 600,
-                destinations: [
-                  NavigationRailDestination(
-                    icon: Icon(Icons.home),
-                    label: Text('Home'),
-                  ),
-                  NavigationRailDestination(
-                    icon: Icon(Icons.favorite),
-                    label: Text('Favorites'),
-                  ),
-                  NavigationRailDestination(
-                      icon: Icon(Icons.monetization_on_outlined),
-                      label: Text('Budget')),
-                ],
-                selectedIndex: selectedIndex, // ← Change to this.
-                onDestinationSelected: (value) {
-                  setState(() {
-                    selectedIndex = value;
-                  });
-                },
+            if (appState.isNavigationRailVisible) // ← Change to this.
+              SafeArea(
+                child: NavigationRail(
+                  extended: constraints.maxWidth >= 600,
+                  destinations: [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.home),
+                      label: Text('Home'),
+                    ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.favorite),
+                      label: Text('Favorites'),
+                    ),
+                    NavigationRailDestination(
+                        icon: Icon(Icons.monetization_on_outlined),
+                        label: Text('Budget')),
+                  ],
+                  selectedIndex: selectedIndex, // ← Change to this.
+                  onDestinationSelected: (value) {
+                    setState(() {
+                      selectedIndex = value;
+                    });
+                  },
+                ),
               ),
-            ),
             Expanded(
               child: Container(
                 color: Theme.of(context).colorScheme.primaryContainer,

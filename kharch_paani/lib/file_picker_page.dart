@@ -1,9 +1,10 @@
-import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'dart:io';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http; // Import the http package.
-import 'dart:convert'; // For JSON decoding.
 import 'package:http_parser/http_parser.dart';
+import 'package:kharcha_paani/env_config.dart';
+import 'package:kharcha_paani/main.dart';
+import 'package:provider/provider.dart';
 
 class FilePickerPage extends StatefulWidget {
   @override
@@ -20,6 +21,8 @@ class _FilePickerPageState extends State<FilePickerPage> {
   String? _monthCode;
   String? _yearValue;
   String? _bankAccName;
+
+  List<List<String>> _csvData = [];
 
   bool get _isTransformButtonEnabled =>
       _monthCode != null && _yearValue != null && _bankAccName != null;
@@ -47,9 +50,8 @@ class _FilePickerPageState extends State<FilePickerPage> {
       return;
     }
 
-    // Declare a variable to endpoint the API URL.
-    var host = 'https://expense-manager-api-s5zz.onrender.com';
-    //var host = 'http://127.0.0.1:8000'; // Localhost for testing.
+    String environment = 'prod'; // Change this dynamically at runtime
+    String host = AppConfig.getHost(environment);
     try {
       final url = Uri.parse('$host/transform/'); // API endpoint.
       // Create a multipart request.
@@ -71,9 +73,61 @@ class _FilePickerPageState extends State<FilePickerPage> {
       print('Response headers: ${response.headers}'); // Print response headers.
       if (response.statusCode == 200) {
         String responseData = await response.stream.bytesToString();
-        var jsonResponse = jsonDecode(responseData); // Parse JSON response.
-        String message = jsonResponse['message']; // Extract the 'message' key.
-        // Handle the response data as needed.
+
+        String message = 'File transformed successfully!';
+
+        List<List<String>> parsedData = responseData
+            .split('\n')
+            .map((line) => line.split('\t').map((cell) => cell.trim()).toList())
+            .toList();
+
+        // Normalize row lengths
+        int maxColumns = parsedData.fold<int>(
+          0,
+          (max, row) => row.length > max ? row.length : max,
+        );
+        parsedData = parsedData
+            .map((row) => List<String>.from(row)
+              ..addAll(List.filled(maxColumns - row.length, "")))
+            .toList();
+
+        // Keep first row as header and keep rows with third column as string 'Other'
+        parsedData = parsedData.where((row) {
+          // Keep the first row as header.
+          if (row == parsedData.first) {
+            return true; // Keep the header row.
+          }
+          if (row.length > 2) {
+            return row[2] == 'Other'; // Keep rows with third column as 'Other'.
+          }
+          return false; // Exclude rows with less than 3 columns.
+        }).toList();
+
+        // Find the indices of the header row where the column is 'Date' and the column is 'Details'
+        int dateIndex = parsedData.first.indexOf('Date');
+        int amountIndex = parsedData.first.indexOf('Amount');
+        int detailsIndex = parsedData.first.indexOf('Details');
+
+        if (dateIndex == -1 || amountIndex == -1 || detailsIndex == -1) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Invalid CSV format.')),
+          );
+          return;
+        }
+
+        // Keepthe columns with the first column as 'Date' and the second column as 'Amount'
+        parsedData = parsedData.map((row) {
+          return [
+            row[dateIndex], // Keep the 'Date' column.
+            row[amountIndex], // Keep the 'Amount' column.
+            row[detailsIndex], // Keep the 'Amount' column.
+          ];
+        }).toList();
+
+        setState(() {
+          _csvData = parsedData; // Store the parsed data.
+        });
+
         // Show success ribbon
         showDialog(
           context: context,
@@ -190,6 +244,7 @@ class _FilePickerPageState extends State<FilePickerPage> {
       _monthCode = null;
       _yearValue = null;
       _bankAccName = null;
+      _csvData = []; // Reset the CSV data.
     });
   }
 
@@ -206,17 +261,31 @@ class _FilePickerPageState extends State<FilePickerPage> {
 
   @override
   Widget build(BuildContext context) {
+    var appState = context.watch<MyAppState>();
+    var iconButton = IconButton(
+      icon: Icon(Icons.menu), // Icon for the leading button.
+      tooltip: 'Toggle Navigation',
+      color: Theme.of(context).colorScheme.onPrimary,
+      onPressed: () {
+        appState.toggleNavigationRail(); // Toggle the navigation rail.
+      },
+    );
     return Scaffold(
       appBar: AppBar(
-        title: Text('Hisaab Kitaab'),
+        title: Text('Hisaab Kitaab',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onPrimary,
+            )),
         backgroundColor: Theme.of(context).colorScheme.primary,
-        leading: IconButton(
-          icon: Icon(Icons.analytics_outlined),
-          onPressed: () {
-            Navigator.pop(context);
-          },
+        centerTitle: true,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(
+            bottom: Radius.circular(10),
+          ),
         ),
+        leading: iconButton,
       ),
+      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
       body: Center(
         child: Column(
           //mainAxisAlignment: MainAxisAlignment.center,
@@ -328,14 +397,84 @@ class _FilePickerPageState extends State<FilePickerPage> {
                   ),
                 ],
               ),
+            if (_csvData.isNotEmpty)
+              Center(
+                child: SizedBox(
+                  width: 50,
+                  child: Divider(
+                    color: Theme.of(context).colorScheme.primary,
+                    thickness: 1,
+                    height: 40,
+                  ),
+                ),
+              ),
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    // Existing widgets...
+                    if (_csvData.isNotEmpty) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.warning,
+                              color: Theme.of(context).colorScheme.primary),
+                          SizedBox(width: 10),
+                          Container(
+                            padding: EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color:
+                                  Theme.of(context).colorScheme.inversePrimary,
+                              borderRadius: BorderRadius.circular(8),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.1),
+                                  blurRadius: 4,
+                                  offset: Offset(2, 2),
+                                ),
+                              ],
+                            ),
+                            child: Text(
+                              'Un-classified transactions',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Theme.of(context).colorScheme.primary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columnSpacing: 10, // Reduce spacing between columns
+                          columns: _csvData.first
+                              .map((header) => DataColumn(
+                                  label: Text(header,
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ))))
+                              .toList(),
+                          rows: _csvData
+                              .skip(1) // Skip the header row.
+                              .map(
+                                (row) => DataRow(
+                                  cells: row
+                                      .map((cell) => DataCell(Text(cell)))
+                                      .toList(),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          _pickFile();
-        },
-        child: Icon(Icons.add),
       ),
     );
   }
